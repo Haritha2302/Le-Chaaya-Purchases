@@ -518,13 +518,14 @@ function closePicker(){ $('picker').removeAttribute('data-open'); }
 
 function renderPickList(){
   const q = $('pickSearch').value.trim().toLowerCase();
-  const chosen = new Set(lines.map(l => l.sku));
+  const count = {};
+  lines.forEach(l => { count[l.sku] = (count[l.sku] || 0) + 1; });
   const hits = boot.items.filter(i =>
     !q || i.name.toLowerCase().includes(q) || i.sku.toLowerCase().includes(q) || (i.category || '').toLowerCase().includes(q));
   $('pickList').innerHTML = hits.length
     ? hits.map(i =>
-        '<button class="opt" data-sku="' + esc(i.sku) + '"' + (chosen.has(i.sku) ? ' disabled' : '') + '>' +
-          '<span>' + esc(i.name) + (chosen.has(i.sku) ? ' · added' : '') + '</span>' +
+        '<button class="opt" data-sku="' + esc(i.sku) + '">' +
+          '<span>' + esc(i.name) + (count[i.sku] ? ' · ' + count[i.sku] + ' on this bill' : '') + '</span>' +
           '<span class="cat">' + esc(i.unit) + '</span>' +
         '</button>').join('')
     : '<div class="empty">No item matches “' + esc($('pickSearch').value) + '”.<br>Ask Haritha to add it to the item list.</div>';
@@ -536,11 +537,19 @@ function renderPickList(){
 function addLine(sku){
   const it = boot.items.find(i => i.sku === sku);
   if (!it) return;
+  const used = new Set(lines.filter(l => l.sku === sku && l.packIdx >= 0).map(l => l.packIdx));
   const defIdx = it.packs.findIndex(p => p.isDefault);
+  let packIdx = -1;
+  if (it.packs.length){
+    if (!used.size) packIdx = defIdx >= 0 ? defIdx : 0;
+    else {
+      const free = it.packs.findIndex((p, pi) => !used.has(pi));
+      packIdx = free >= 0 ? free : (defIdx >= 0 ? defIdx : 0);
+    }
+  }
   lines.push({
     sku:it.sku, name:it.name, unit:it.unit, packs:it.packs,
-    packIdx: it.packs.length ? (defIdx >= 0 ? defIdx : 0) : -1,
-    packCount:'', qty:'', amount:''
+    packIdx: packIdx, packCount:'', qty:'', amount:''
   });
   renderLines();
 }
@@ -683,7 +692,11 @@ function collect(){
     noBill: attachment === 'none',
     fileBase64: (attachment && attachment !== 'none') ? attachment.base64 : '',
     fileMime: (attachment && attachment !== 'none') ? attachment.mime : '',
-    items: lines.map(l => ({sku:l.sku, qty:lineQty(l), amount:r2(l.amount)}))
+    items: lines.map(l => ({
+      sku:l.sku, qty:lineQty(l), amount:r2(l.amount),
+      pack: (l.packIdx >= 0 && l.packs.length)
+        ? (Number(l.packCount) + ' × ' + l.packs[l.packIdx].label) : ''
+    }))
   };
 }
 
@@ -698,6 +711,12 @@ function validate(p){
   for (let i = 0; i < p.items.length; i++){
     if (!(p.items[i].qty > 0)) return 'Enter a quantity for ' + lines[i].name + '.';
     if (!(p.items[i].amount > 0)) return 'Enter the amount paid for ' + lines[i].name + '.';
+  }
+  const seenPack = {};
+  for (let i = 0; i < lines.length; i++){
+    const k = lines[i].sku + '|' + lines[i].packIdx;
+    if (seenPack[k]) return lines[i].name + ' is on the bill twice at the same pack size. Combine those two lines into one, or change one of the pack sizes.';
+    seenPack[k] = true;
   }
   return null;
 }
@@ -735,7 +754,10 @@ function showDone(r){
   $('doneDetail').innerHTML =
     esc(r.lines) + ' item' + (r.lines === 1 ? '' : 's') + ' from ' + esc(r.vendor) +
     ', ' + money(r.billTotal) + ' in total.<br>Document ' + esc(r.docNo) + '.' +
-    (r.backdated ? '<br>Recorded against an earlier date.' : '');
+    (r.backdated ? '<br>Recorded against an earlier date.' : '') +
+    (r.reusedDoc ? '<br>Attached to the document already filed for this bill.' : '') +
+    (r.gapsFilled ? '<br>Also attached to ' + r.gapsFilled + ' earlier row' + (r.gapsFilled === 1 ? '' : 's') + ' of this bill.' : '') +
+    (r.secondDoc ? '<br>This bill now has two documents in Drive.' : '');
 }
 
 $('againBtn').onclick = () => {
