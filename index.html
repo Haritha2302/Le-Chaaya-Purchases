@@ -35,9 +35,13 @@ button,input,select,textarea{font:inherit;color:inherit}
 /* ── shell ── */
 .topbar{
   position:sticky;top:0;z-index:40;background:var(--brand);color:#FAF5EA;
-  padding:calc(9px + env(safe-area-inset-top)) 16px 9px;
-  display:flex;align-items:center;gap:12px;
+  padding:calc(9px + env(safe-area-inset-top)) 16px 0;
 }
+.topbar .tbrow{display:flex;align-items:center;gap:12px;padding-bottom:8px}
+.tabs{display:flex;gap:2px}
+.tabs button{flex:1;background:none;border:none;color:#FAF5EA;opacity:.6;cursor:pointer;
+  padding:9px 6px;font-size:13.5px;font-weight:600;border-bottom:2.5px solid transparent}
+.tabs button[aria-selected=true]{opacity:1;border-bottom-color:#FAF5EA}
 .topbar .tbmain{display:flex;flex-direction:column;min-width:0}
 .topbar h1{margin:0;font-size:15px;font-weight:600;letter-spacing:.01em}
 .topbar .tbsub{font-family:var(--mono);font-size:11px;letter-spacing:.05em;opacity:.7;
@@ -132,6 +136,27 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 .tape .toggle{background:none;border:none;font-family:var(--mono);font-size:11px;letter-spacing:.1em;
   text-transform:uppercase;color:var(--ink-soft);cursor:pointer;padding:4px 0}
 
+/* ── pending lists ── */
+.seg.tight button{min-width:56px;flex:0 0 56px}
+.daygrp{margin-bottom:16px}
+.daygrp h3{font-family:var(--mono);font-size:12px;letter-spacing:.08em;color:var(--ink-soft);
+  margin:0 0 6px;text-transform:uppercase;display:flex;align-items:center;gap:10px}
+.daygrp h3 button{margin-left:auto;background:none;border:none;color:var(--brand);
+  font-size:12px;cursor:pointer;text-decoration:underline;font-family:var(--sans)}
+.prow{display:flex;align-items:center;gap:11px;background:var(--card);border:1.5px solid var(--rule);
+  border-radius:8px;padding:11px 12px;margin-bottom:6px;cursor:pointer}
+.prow[data-on]{border-color:var(--brand);background:#FFFCF2}
+.prow input{width:20px;height:20px;flex:0 0 auto;accent-color:var(--brand)}
+.prow .pi{flex:1;min-width:0}
+.prow .pn{font-weight:600;font-size:14.5px}
+.prow .pm{font-family:var(--mono);font-size:11.5px;color:var(--ink-soft)}
+.prow .pa{font-family:var(--mono);font-weight:600;font-variant-numeric:tabular-nums}
+.selbar{position:sticky;bottom:0;background:var(--tape);border-top:1.5px solid var(--rule);
+  margin:0 -16px;padding:12px 16px calc(12px + env(safe-area-inset-bottom));z-index:30}
+.selbar .cnt{font-family:var(--mono);font-size:13px;margin-bottom:9px;display:flex}
+.selbar .cnt span:last-child{margin-left:auto;font-weight:600}
+.tape .trow.neg span:last-child{color:var(--ok)}
+
 /* ── notices ── */
 .msg{border-radius:7px;padding:12px 13px;font-size:14px;margin-bottom:16px}
 .msg.err{background:#F7ECE8;color:#7E3D2C;border:1px solid #E4C4B8}
@@ -170,12 +195,20 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 <!-- ══════════ FORM ══════════ -->
 <section id="formView" class="hidden">
   <div class="topbar">
-    <div class="tbmain">
-      <h1>Record a purchase</h1>
-      <span class="tbsub" id="branchLabel"></span>
+    <div class="tbrow">
+      <div class="tbmain">
+        <h1 id="viewTitle">Record a purchase</h1>
+        <span class="tbsub" id="branchLabel"></span>
+      </div>
+      <span class="who" id="whoLabel"></span>
     </div>
-    <span class="who" id="whoLabel"></span>
+    <div class="tabs" id="tabs">
+      <button data-v="record" aria-selected="true">Record</button>
+      <button data-v="attach" aria-selected="false">Attach bills</button>
+      <button data-v="paid" aria-selected="false">Mark paid</button>
+    </div>
   </div>
+  <div id="recordPane">
   <div class="wrap">
     <div id="formMsg"></div>
 
@@ -222,6 +255,7 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
     <div class="field">
       <label class="lbl" for="docNo">Bill / document number</label>
       <input id="docNo" type="text" autocapitalize="characters" spellcheck="false">
+      <button class="btn ghost small" id="noDocBtn" style="margin-top:8px">Bill hasn't arrived yet</button>
       <p class="help" id="docNoHelp"></p>
     </div>
 
@@ -235,6 +269,19 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
       <p class="eyebrow">3 · What was bought</p>
       <div id="lines"></div>
       <button class="btn ghost wide" id="addItemBtn">Add an item</button>
+    </div>
+
+    <!-- discount -->
+    <div class="field">
+      <label class="lbl" for="discount">Discount on the bill (optional)</label>
+      <div style="display:flex;gap:8px">
+        <input id="discount" type="number" inputmode="decimal" min="0" step="0.01" placeholder="0.00" style="flex:1">
+        <div class="seg tight" id="discSeg" style="flex:0 0 auto">
+          <button type="button" data-v="amount" aria-pressed="true">₹</button>
+          <button type="button" data-v="percent" aria-pressed="false">%</button>
+        </div>
+      </div>
+      <p class="help">A discount the vendor gave on the whole bill. Spread across items in proportion to their cost.</p>
     </div>
 
     <!-- charges -->
@@ -257,17 +304,71 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
       <button class="btn wide" id="submitBtn" style="margin-top:12px">Save purchase</button>
     </div>
   </div>
+  </div><!-- /recordPane -->
+
+  <!-- ── ATTACH BILLS ── -->
+  <div id="attachPane" class="hidden">
+    <div class="wrap">
+      <div id="attachMsg"></div>
+      <div class="field">
+        <label class="lbl" for="attVendor">Vendor</label>
+        <select id="attVendor"></select>
+      </div>
+      <div id="attList"></div>
+    </div>
+    <div class="wrap" style="padding-top:0">
+      <div class="selbar hidden" id="attBar">
+        <div class="cnt"><span id="attCount">0 rows</span><span id="attTotal">₹0.00</span></div>
+        <div class="field" style="margin-bottom:10px">
+          <label class="lbl" for="attInv">Invoice number</label>
+          <input id="attInv" type="text" autocapitalize="characters" spellcheck="false">
+        </div>
+        <div class="attach" style="margin-bottom:10px">
+          <div class="row">
+            <button class="btn ghost small" id="attCamBtn">Take a photo</button>
+            <button class="btn ghost small" id="attFileBtn">Upload a file</button>
+          </div>
+          <input id="attCamInput" class="hidden" type="file" accept="image/*" capture="environment">
+          <input id="attFileInput" class="hidden" type="file" accept="image/*,application/pdf">
+          <div id="attAttachOut"></div>
+        </div>
+        <button class="btn wide" id="attSaveBtn">Attach bill to selected rows</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MARK PAID ── -->
+  <div id="paidPane" class="hidden">
+    <div class="wrap">
+      <div id="paidMsg"></div>
+      <div class="field">
+        <label class="lbl" for="paidVendor">Vendor</label>
+        <select id="paidVendor"></select>
+      </div>
+      <div id="paidList"></div>
+    </div>
+    <div class="wrap" style="padding-top:0">
+      <div class="selbar hidden" id="paidBar">
+        <div class="cnt"><span id="paidCount">0 rows</span><span id="paidTotal">₹0.00</span></div>
+        <div class="grid2" style="margin-bottom:10px">
+          <div><span class="mini">Payment date</span><input id="paidDate" type="date"></div>
+          <div><span class="mini">Reference (optional)</span><input id="paidRef" type="text"></div>
+        </div>
+        <button class="btn wide" id="paidSaveBtn">Mark selected rows paid</button>
+      </div>
+    </div>
+  </div>
 </section>
 
 <!-- ══════════ DONE ══════════ -->
 <section id="doneView" class="hidden">
-  <div class="topbar"><h1>Record a purchase</h1></div>
+  <div class="topbar"><div class="tbrow"><div class="tbmain"><h1>Purchases</h1></div></div></div>
   <div class="wrap">
     <div class="done">
       <div class="tick">✓</div>
-      <h2 style="margin:12px 0 6px;font-size:21px">Purchase saved</h2>
+      <h2 style="margin:12px 0 6px;font-size:21px" id="doneTitle">Purchase saved</h2>
       <p class="help" id="doneDetail" style="margin-bottom:26px"></p>
-      <button class="btn wide" id="againBtn">Record another purchase</button>
+      <button class="btn wide" id="againBtn">Back</button>
       <button class="btn ghost wide" id="signOutBtn" style="margin-top:10px">Sign out</button>
     </div>
   </div>
@@ -296,6 +397,7 @@ const SESSION_HOURS = 12;
 let boot = null;          // bootstrap payload
 let lines = [];           // [{sku,name,unit,packs,packIdx,packCount,qty,amount}]
 let attachment = null;    // {base64,mime,name,previewUrl} | 'none'
+let pending = null, attSel = {}, paidSel = {}, attFile = null;
 
 /* ── tiny helpers ── */
 const $ = id => document.getElementById(id);
@@ -411,6 +513,13 @@ function startForm(r){
     const b = e.target.closest('button'); if (!b) return;
     [...$('paySeg').children].forEach(c => c.setAttribute('aria-pressed', c === b));
   };
+  $('discSeg').onclick = e => {
+    const b = e.target.closest('button'); if (!b) return;
+    [...$('discSeg').children].forEach(c => c.setAttribute('aria-pressed', c === b));
+    renderTape();
+  };
+  $('paidDate').value = r.today;
+  $('paidDate').max = r.today;
 
   renderLines();
 }
@@ -420,8 +529,14 @@ function syncDocNo(){
   $('docNo').disabled = self;
   $('docNo').value = self ? '' : $('docNo').value;
   $('docNo').placeholder = self ? 'Numbered automatically' : '';
+  $('noDocBtn').classList.toggle('hidden', self);
   $('docNoHelp').textContent = self ? 'A self-voucher number is assigned when you save.' : '';
 }
+
+$('noDocBtn').onclick = () => {
+  $('docNo').value = (boot && boot.noDoc) || 'NA';
+  $('docNoHelp').textContent = 'Recorded without a bill. Attach it later from the Attach bills tab.';
+};
 
 function esc(s){
   return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
@@ -430,29 +545,53 @@ function esc(s){
 /* ═══════════ BILL ATTACHMENT ═══════════ */
 $('camBtn').onclick = () => $('camInput').click();
 $('fileBtn').onclick = () => $('fileInput').click();
-$('camInput').onchange = e => { handleFile(e.target.files[0]); e.target.value = ''; };
-$('fileInput').onchange = e => { handleFile(e.target.files[0]); e.target.value = ''; };
+$('camInput').onchange = e => { handleFile(e.target.files[0], 'record'); e.target.value = ''; };
+$('fileInput').onchange = e => { handleFile(e.target.files[0], 'record'); e.target.value = ''; };
+$('attCamBtn').onclick = () => $('attCamInput').click();
+$('attFileBtn').onclick = () => $('attFileInput').click();
+$('attCamInput').onchange = e => { handleFile(e.target.files[0], 'attach'); e.target.value = ''; };
+$('attFileInput').onchange = e => { handleFile(e.target.files[0], 'attach'); e.target.value = ''; };
   $('noBillBtn').onclick = () => {
   attachment = (attachment === 'none') ? null : 'none';
   $('noBillBtn').setAttribute('aria-pressed', attachment === 'none');
   renderAttachment();
 };
 
-async function handleFile(file){
+async function handleFile(file, target){
   if (!file) return;
-  notice($('formMsg'), '');
+  target = target || 'record';
+  const msgEl = target === 'record' ? $('formMsg') : $('attachMsg');
+  notice(msgEl, '');
   try{
+    let a;
     if (file.type === 'application/pdf'){
-      if (file.size > 10*1024*1024) return notice($('formMsg'), 'That PDF is over 10 MB. Compress it and try again.');
-      attachment = {base64: await toBase64(file), mime:'application/pdf', name:file.name, previewUrl:null};
+      if (file.size > 10*1024*1024) return notice(msgEl, 'That PDF is over 10 MB. Compress it and try again.');
+      a = {base64: await toBase64(file), mime:'application/pdf', name:file.name, previewUrl:null};
     }else{
-      attachment = await compressImage(file);
+      a = await compressImage(file);
     }
-    $('noBillBtn').setAttribute('aria-pressed', 'false');
-    renderAttachment();
+    if (target === 'record'){
+      attachment = a;
+      $('noBillBtn').setAttribute('aria-pressed', 'false');
+      renderAttachment();
+    }else{
+      attFile = a;
+      renderAttAttachment();
+    }
   }catch(err){
-    notice($('formMsg'), 'That file could not be read. Try taking the photo again.');
+    notice(msgEl, 'That file could not be read. Try taking the photo again.');
   }
+}
+
+function renderAttAttachment(){
+  const out = $('attAttachOut');
+  if (!attFile){ out.innerHTML = ''; return; }
+  const kb = Math.round(attFile.base64.length * 0.75 / 1024);
+  out.innerHTML = '<div class="thumb">' +
+    (attFile.previewUrl ? '<img src="' + attFile.previewUrl + '" alt="Bill preview">' : '') +
+    '<div class="meta">' + esc(attFile.name) + '<br>' + kb + ' KB</div>' +
+    '<button class="x" id="dropAtt" aria-label="Remove attachment">×</button></div>';
+  $('dropAtt').onclick = () => { attFile = null; renderAttAttachment(); };
 }
 
 function toBase64(file){
@@ -632,46 +771,61 @@ function refreshDerived(i){
 }
 
 /* ═══════════ THE BILL TAPE ═══════════ */
-function shares(){
-  const amounts = lines.map(l => r2(l.amount));
-  const charges = r2($('charges').value);
-  const total = amounts.reduce((s, a) => s + a, 0);
-  if (!(charges > 0) || !amounts.length) return amounts.map(() => 0);
-  if (!(total > 0)){
-    const even = r2(charges / amounts.length);
+function shares(amounts, total){
+  const n = amounts.length;
+  if (!(total > 0) || !n) return amounts.map(() => 0);
+  const sum = amounts.reduce((s, a) => s + a, 0);
+  if (!(sum > 0)){
+    const even = r2(total / n);
     const out = amounts.map(() => even);
-    out[out.length - 1] = r2(charges - even * (amounts.length - 1));
+    out[n - 1] = r2(total - even * (n - 1));
     return out;
   }
-  const out = amounts.map(a => r2(charges * a / total));
-  const drift = r2(charges - out.reduce((s, x) => s + x, 0));
+  const out = amounts.map(a => r2(total * a / sum));
+  const drift = r2(total - out.reduce((s, x) => s + x, 0));
   if (drift !== 0){
     let big = 0;
-    for (let i = 1; i < amounts.length; i++) if (amounts[i] > amounts[big]) big = i;
+    for (let i = 1; i < n; i++) if (amounts[i] > amounts[big]) big = i;
     out[big] = r2(out[big] + drift);
   }
   return out;
 }
 
+function discountType(){
+  const b = [...$('discSeg').children].find(x => x.getAttribute('aria-pressed') === 'true');
+  return b ? b.dataset.v : 'amount';
+}
+function discountAmount(itemsTotal){
+  const v = Number($('discount').value) || 0;
+  if (!(v > 0)) return 0;
+  return discountType() === 'percent' ? r2(itemsTotal * Math.min(v, 100) / 100) : r2(v);
+}
+
 function renderTape(){
-  const sh = shares();
+  const amounts = lines.map(l => r2(l.amount));
+  const itemsTotal = r2(amounts.reduce((s, a) => s + a, 0));
+  const disc = Math.min(discountAmount(itemsTotal), itemsTotal);
   const charges = r2($('charges').value);
-  const itemsTotal = lines.reduce((s, l) => s + r2(l.amount), 0);
-  $('tapeTotal').textContent = money(itemsTotal + charges);
+  const dS = shares(amounts, disc), cS = shares(amounts, charges);
+  $('tapeTotal').textContent = money(itemsTotal - disc + charges);
   $('tapeRoll').innerHTML = lines.length
     ? lines.map((l, i) => {
-        const q = lineQty(l), amt = r2(l.amount), tot = r2(amt + sh[i]);
+        const q = lineQty(l), amt = r2(l.amount), tot = r2(amt - dS[i] + cS[i]);
+        const bits = [];
+        if (dS[i] > 0) bits.push('− ' + money(dS[i]) + ' disc');
+        if (cS[i] > 0) bits.push('+ ' + money(cS[i]) + ' chg');
         return '<div class="trow"><span>' + esc(l.name) + '</span><span>' + money(amt) + '</span></div>' +
-          (sh[i] > 0
-            ? '<div class="trow sub"><span>' + (q || '—') + ' ' + esc(l.unit) + ' · + ' + money(sh[i]) + ' charges → ' + money(tot) + '</span></div>'
-            : '<div class="trow sub"><span>' + (q || '—') + ' ' + esc(l.unit) + '</span></div>');
-      }).join('') + (charges > 0
-        ? '<div class="rule"></div><div class="trow"><span>Additional charges</span><span>' + money(charges) + '</span></div>'
-        : '')
+          '<div class="trow sub"><span>' + (q || '—') + ' ' + esc(l.unit) +
+          (bits.length ? ' · ' + bits.join(' ') + ' → ' + money(tot) : '') + '</span></div>';
+      }).join('') +
+      (disc > 0 ? '<div class="rule"></div><div class="trow neg"><span>Discount</span><span>− ' + money(disc) + '</span></div>' : '') +
+      (charges > 0 ? (disc > 0 ? '' : '<div class="rule"></div>') +
+        '<div class="trow"><span>Additional charges</span><span>' + money(charges) + '</span></div>' : '')
     : '<div class="trow sub"><span>Add items to see the breakdown.</span></div>';
 }
 
 $('charges').oninput = () => { renderTape(); };
+$('discount').oninput = () => { renderTape(); };
 
 /* ═══════════ SUBMIT ═══════════ */
 $('submitBtn').dataset.label = 'Save purchase';
@@ -688,6 +842,8 @@ function collect(){
     docNo: $('docNo').value.trim(),
     paymentStatus: payBtn ? payBtn.dataset.v : '',
     branchCode: boot.needsOutlet ? $('outletSel').value : '',
+    discount: Number($('discount').value) || 0,
+    discountType: discountType(),
     additionalCharges: r2($('charges').value),
     noBill: attachment === 'none',
     fileBase64: (attachment && attachment !== 'none') ? attachment.base64 : '',
@@ -718,6 +874,9 @@ function validate(p){
     if (seenPack[k]) return lines[i].name + ' is on the bill twice at the same pack size. Combine those two lines into one, or change one of the pack sizes.';
     seenPack[k] = true;
   }
+  const itemsTotal = p.items.reduce((s, x) => s + x.amount, 0);
+  if (p.discountType === 'percent' && p.discount > 100) return 'A discount cannot exceed 100%.';
+  if (p.discountType === 'amount' && p.discount > itemsTotal) return 'The discount is larger than the items total.';
   return null;
 }
 
@@ -747,13 +906,26 @@ async function submitPurchase(confirmDuplicate){
   }
 }
 
-function showDone(r){
+function showPanel(title, detail){
   $('formView').classList.add('hidden');
   $('doneView').classList.remove('hidden');
   window.scrollTo(0, 0);
+  $('doneTitle').textContent = title;
+  $('doneDetail').innerHTML = detail;
+}
+
+function showDone(r){
+  pending = null;
+  $('formView').classList.add('hidden');
+  $('doneView').classList.remove('hidden');
+  window.scrollTo(0, 0);
+  $('doneTitle').textContent = 'Purchase saved';
   $('doneDetail').innerHTML =
     esc(r.lines) + ' item' + (r.lines === 1 ? '' : 's') + ' from ' + esc(r.vendor) +
-    ', ' + money(r.billTotal) + ' in total.<br>Document ' + esc(r.docNo) + '.' +
+    ', ' + money(r.billTotal) + ' in total.' +
+    (r.discount ? '<br>Discount ' + money(r.discount) + ' spread across the items.' : '') +
+    '<br>Document ' + esc(r.docNo) + '.' +
+    (r.pendingBill ? '<br>No bill yet — attach it later from the Attach bills tab.' : '') +
     (r.backdated ? '<br>Recorded against an earlier date.' : '') +
     (r.reusedDoc ? '<br>Attached to the document already filed for this bill.' : '') +
     (r.gapsFilled ? '<br>Also attached to ' + r.gapsFilled + ' earlier row' + (r.gapsFilled === 1 ? '' : 's') + ' of this bill.' : '') +
@@ -765,6 +937,7 @@ $('againBtn').onclick = () => {
   attachment = null;
   $('noBillBtn').setAttribute('aria-pressed', 'false');
   $('charges').value = '';
+  $('discount').value = '';
   $('docNo').value = '';
   $('vendorSel').value = '';
   $('vendorNew').value = '';
@@ -777,6 +950,151 @@ $('againBtn').onclick = () => {
   window.scrollTo(0, 0);
 };
 $('signOutBtn').onclick = signOut;
+
+/* ═══════════ TABS ═══════════ */
+$('tabs').onclick = async e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const v = b.dataset.v;
+  [...$('tabs').children].forEach(c => c.setAttribute('aria-selected', c === b));
+  $('recordPane').classList.toggle('hidden', v !== 'record');
+  $('attachPane').classList.toggle('hidden', v !== 'attach');
+  $('paidPane').classList.toggle('hidden', v !== 'paid');
+  $('viewTitle').textContent = v === 'record' ? 'Record a purchase'
+    : v === 'attach' ? 'Attach bills' : 'Mark paid';
+  window.scrollTo(0, 0);
+  if (v === 'record') return;
+  const msgEl = v === 'attach' ? $('attachMsg') : $('paidMsg');
+  if (!pending){
+    notice(msgEl, 'Loading…', 'ok');
+    try{ await loadPending(); notice(msgEl, ''); }
+    catch(err){ return notice(msgEl, err.message); }
+  }
+  if (v === 'attach') renderAttach(); else renderPaid();
+};
+
+async function loadPending(){
+  const r = await api('pendingRows', {vendorName:''});
+  if (!r.ok) throw new Error(r.error);
+  pending = r;
+  ['attVendor','paidVendor'].forEach(id => {
+    const keep = $(id).value;
+    $(id).innerHTML = '<option value="">All vendors</option>' +
+      r.vendors.map(v => '<option value="' + esc(v) + '">' + esc(v) + '</option>').join('');
+    if (keep) $(id).value = keep;
+  });
+  $('attVendor').onchange = () => renderAttach();
+  $('paidVendor').onchange = () => renderPaid();
+}
+
+function rowKey(r){ return r.row + '|' + r.date + '|' + r.sku; }
+function selectedRows(rows, sel){ return rows.filter(r => sel[rowKey(r)]); }
+
+function renderList(container, rows, sel, redraw){
+  if (!rows.length){ container.innerHTML = '<div class="empty">Nothing pending here.</div>'; return; }
+  const groups = {};
+  rows.forEach(r => { (groups[r.date] = groups[r.date] || []).push(r); });
+  container.innerHTML = Object.keys(groups).sort().map(d =>
+    '<div class="daygrp"><h3>' + esc(d) + '<button data-all="' + esc(d) + '">select all</button></h3>' +
+    groups[d].map(r => {
+      const k = rowKey(r);
+      return '<label class="prow"' + (sel[k] ? ' data-on' : '') + ' data-k="' + esc(k) + '">' +
+        '<input type="checkbox"' + (sel[k] ? ' checked' : '') + '>' +
+        '<span class="pi"><span class="pn">' + esc(r.item) + '</span><br>' +
+        '<span class="pm">' + r.qty + ' ' + esc(r.unit) + ' · ' + esc(r.vendor) +
+        (r.docNo && r.docNo !== 'NA' ? ' · ' + esc(r.docNo) : '') + '</span></span>' +
+        '<span class="pa">' + money(r.amount) + '</span></label>';
+    }).join('') + '</div>').join('');
+
+  container.querySelectorAll('.prow').forEach(el => {
+    el.onclick = ev => {
+      ev.preventDefault();
+      const k = el.dataset.k;
+      sel[k] = !sel[k];
+      redraw();
+    };
+  });
+  container.querySelectorAll('[data-all]').forEach(b => {
+    b.onclick = ev => {
+      ev.preventDefault(); ev.stopPropagation();
+      const grp = rows.filter(r => r.date === b.dataset.all);
+      const allOn = grp.every(r => sel[rowKey(r)]);
+      grp.forEach(r => { sel[rowKey(r)] = !allOn; });
+      redraw();
+    };
+  });
+}
+
+/* ── attach ── */
+function attachRows(){
+  const v = $('attVendor').value;
+  return (pending ? pending.awaitingBill : []).filter(r => !v || r.vendor === v);
+}
+function renderAttach(){
+  const rows = attachRows();
+  renderList($('attList'), rows, attSel, renderAttach);
+  const sel = selectedRows(rows, attSel);
+  $('attBar').classList.toggle('hidden', !sel.length);
+  $('attCount').textContent = sel.length + ' row' + (sel.length === 1 ? '' : 's');
+  $('attTotal').textContent = money(sel.reduce((s, r) => s + r.amount, 0));
+}
+$('attSaveBtn').dataset.label = 'Attach bill to selected rows';
+$('attSaveBtn').onclick = async () => {
+  const rows = selectedRows(attachRows(), attSel);
+  if (!rows.length) return notice($('attachMsg'), 'Pick the rows this bill covers.');
+  const inv = $('attInv').value.trim();
+  if (!inv) return notice($('attachMsg'), 'Enter the invoice number.');
+  if (!attFile && !confirm('No image attached. Record the invoice number only?')) return;
+  notice($('attachMsg'), '');
+  busy($('attSaveBtn'), true, 'Attaching…');
+  try{
+    const r = await api('attachBill', {
+      rows: rows.map(x => ({row:x.row, date:x.date, sku:x.sku, item:x.item})),
+      invoiceNo: inv, noBill: !attFile,
+      fileBase64: attFile ? attFile.base64 : '', fileMime: attFile ? attFile.mime : ''
+    });
+    busy($('attSaveBtn'), false);
+    if (!r.ok) return notice($('attachMsg'), r.error);
+    attSel = {}; attFile = null; $('attInv').value = ''; renderAttAttachment();
+    pending = null;
+    showPanel('Bill attached',
+      r.updated + ' row' + (r.updated === 1 ? '' : 's') + ' updated to invoice ' + esc(r.invoiceNo) + '.' +
+      (r.stale && r.stale.length ? '<br>' + r.stale.length + ' row(s) had changed and were skipped.' : ''));
+  }catch(err){ busy($('attSaveBtn'), false); notice($('attachMsg'), err.message); }
+};
+
+/* ── mark paid ── */
+function paidRows(){
+  const v = $('paidVendor').value;
+  return (pending ? pending.awaitingPayment : []).filter(r => !v || r.vendor === v);
+}
+function renderPaid(){
+  const rows = paidRows();
+  renderList($('paidList'), rows, paidSel, renderPaid);
+  const sel = selectedRows(rows, paidSel);
+  $('paidBar').classList.toggle('hidden', !sel.length);
+  $('paidCount').textContent = sel.length + ' row' + (sel.length === 1 ? '' : 's');
+  $('paidTotal').textContent = money(sel.reduce((s, r) => s + r.amount, 0));
+}
+$('paidSaveBtn').dataset.label = 'Mark selected rows paid';
+$('paidSaveBtn').onclick = async () => {
+  const rows = selectedRows(paidRows(), paidSel);
+  if (!rows.length) return notice($('paidMsg'), 'Pick the rows this payment covers.');
+  if (!$('paidDate').value) return notice($('paidMsg'), 'Pick the payment date.');
+  notice($('paidMsg'), '');
+  busy($('paidSaveBtn'), true, 'Saving…');
+  try{
+    const r = await api('markPaid', {
+      rows: rows.map(x => ({row:x.row, date:x.date, sku:x.sku, item:x.item})),
+      paidDate: $('paidDate').value, paymentRef: $('paidRef').value.trim()
+    });
+    busy($('paidSaveBtn'), false);
+    if (!r.ok) return notice($('paidMsg'), r.error);
+    paidSel = {}; $('paidRef').value = '';
+    pending = null;
+    showPanel('Marked paid', r.updated + ' row' + (r.updated === 1 ? '' : 's') + ' updated.' +
+      (r.stale && r.stale.length ? '<br>' + r.stale.length + ' row(s) had changed and were skipped.' : ''));
+  }catch(err){ busy($('paidSaveBtn'), false); notice($('paidMsg'), err.message); }
+};
 
 /* ═══════════ RESUME A SESSION ═══════════ */
 (async function(){
