@@ -8,6 +8,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" defer></script>
 <style>
 :root{
   --ink:#241A12;
@@ -93,6 +94,13 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
 .thumb{display:flex;gap:12px;align-items:center;margin-top:12px}
 .thumb img{width:64px;height:64px;object-fit:cover;border-radius:5px;border:1px solid var(--rule)}
 .thumb .meta{font-size:13px;color:var(--ink-soft);flex:1;min-width:0;word-break:break-word}
+.pgs{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+.pg{position:relative;width:72px;height:96px;border:1px solid var(--rule);border-radius:5px;overflow:hidden}
+.pg img{width:100%;height:100%;object-fit:cover;display:block}
+.pg .pgn{position:absolute;left:0;bottom:0;background:var(--brand);color:#FAF5EA;
+  font-family:var(--mono);font-size:10px;padding:1px 5px;border-radius:0 5px 0 0}
+.pg .x{position:absolute;top:0;right:0;background:rgba(255,255,255,.9);border-radius:0 0 0 5px;
+  font-size:16px;padding:0 5px;line-height:1.3}
 
 /* ── item lines ── */
 .line{background:var(--card);border:1.5px solid var(--rule);border-radius:9px;padding:13px;margin-bottom:10px}
@@ -222,7 +230,7 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
           <button class="btn ghost small" id="noBillBtn" aria-pressed="false">No bill image</button>
         </div>
         <input id="camInput" class="hidden" type="file" accept="image/*" capture="environment">
-        <input id="fileInput" class="hidden" type="file" accept="image/*,application/pdf">
+        <input id="fileInput" class="hidden" type="file" accept="image/*,application/pdf" multiple>
         <div id="attachOut"></div>
       </div>
       <p class="help">One image per bill. For a multi-page bill, upload a single PDF.</p>
@@ -329,7 +337,7 @@ select{appearance:none;background-image:linear-gradient(45deg,transparent 50%,va
             <button class="btn ghost small" id="attFileBtn">Upload a file</button>
           </div>
           <input id="attCamInput" class="hidden" type="file" accept="image/*" capture="environment">
-          <input id="attFileInput" class="hidden" type="file" accept="image/*,application/pdf">
+          <input id="attFileInput" class="hidden" type="file" accept="image/*,application/pdf" multiple>
           <div id="attAttachOut"></div>
         </div>
         <button class="btn wide" id="attSaveBtn">Attach bill to selected rows</button>
@@ -398,6 +406,7 @@ let boot = null;          // bootstrap payload
 let lines = [];           // [{sku,name,unit,packs,packIdx,packCount,qty,amount}]
 let attachment = null;    // {base64,mime,name,previewUrl} | 'none'
 let pending = null, attSel = {}, paidSel = {}, attFile = null;
+let pages = [], attPages = [], noBill = false;   // pages: [{base64,mime,name,previewUrl,w,h}]
 
 /* ── tiny helpers ── */
 const $ = id => document.getElementById(id);
@@ -545,18 +554,91 @@ function esc(s){
 /* ═══════════ BILL ATTACHMENT ═══════════ */
 $('camBtn').onclick = () => $('camInput').click();
 $('fileBtn').onclick = () => $('fileInput').click();
-$('camInput').onchange = e => { handleFile(e.target.files[0], 'record'); e.target.value = ''; };
-$('fileInput').onchange = e => { handleFile(e.target.files[0], 'record'); e.target.value = ''; };
+$('camInput').onchange = e => { handleFiles(e.target.files, 'record'); e.target.value = ''; };
+$('fileInput').onchange = e => { handleFiles(e.target.files, 'record'); e.target.value = ''; };
 $('attCamBtn').onclick = () => $('attCamInput').click();
 $('attFileBtn').onclick = () => $('attFileInput').click();
-$('attCamInput').onchange = e => { handleFile(e.target.files[0], 'attach'); e.target.value = ''; };
-$('attFileInput').onchange = e => { handleFile(e.target.files[0], 'attach'); e.target.value = ''; };
-  $('noBillBtn').onclick = () => {
-  attachment = (attachment === 'none') ? null : 'none';
-  $('noBillBtn').setAttribute('aria-pressed', attachment === 'none');
+$('attCamInput').onchange = e => { handleFiles(e.target.files, 'attach'); e.target.value = ''; };
+$('attFileInput').onchange = e => { handleFiles(e.target.files, 'attach'); e.target.value = ''; };
+$('noBillBtn').onclick = () => {
+  noBill = !noBill;
+  if (noBill) pages = [];
+  $('noBillBtn').setAttribute('aria-pressed', noBill);
   renderAttachment();
 };
 
+/** Compresses each picked file and appends it as a page. A PDF replaces the set. */
+async function handleFiles(fileList, target){
+  const files = [...(fileList || [])];
+  if (!files.length) return;
+  const msgEl = target === 'record' ? $('formMsg') : $('attachMsg');
+  const arr = target === 'record' ? pages : attPages;
+  notice(msgEl, '');
+  try{
+    for (const file of files){
+      if (file.type === 'application/pdf'){
+        if (file.size > 10*1024*1024){ notice(msgEl, 'That PDF is over 10 MB. Compress it and try again.'); continue; }
+        arr.length = 0;
+        arr.push({base64: await toBase64(file), mime:'application/pdf', name:file.name, previewUrl:null, isPdf:true});
+        continue;
+      }
+      if (arr.some(p => p.isPdf)) arr.length = 0;   // a PDF and photos don't mix
+      if (arr.length >= 12){ notice(msgEl, 'Twelve pages is the limit for one bill.'); break; }
+      arr.push(await compressImage(file));
+    }
+    if (target === 'record'){ noBill = false; $('noBillBtn').setAttribute('aria-pressed','false'); renderAttachment(); }
+    else renderAttAttachment();
+  }catch(err){
+    notice(msgEl, 'That file could not be read. Try taking the photo again.');
+  }
+}
+
+/** Renders the page strip for either screen. */
+function pageStrip(arr, prefix){
+  if (!arr.length) return '';
+  if (arr[0].isPdf){
+    const kb = Math.round(arr[0].base64.length * 0.75 / 1024);
+    return '<div class="thumb"><div class="meta">' + esc(arr[0].name) + '<br>' + kb + ' KB · PDF</div>' +
+      '<button class="x" data-' + prefix + 'rm="0" aria-label="Remove">×</button></div>';
+  }
+  const total = Math.round(arr.reduce((s, p) => s + p.base64.length, 0) * 0.75 / 1024);
+  return '<div class="pgs">' + arr.map((p, i) =>
+      '<div class="pg"><img src="' + p.previewUrl + '" alt="Page ' + (i+1) + '">' +
+      '<span class="pgn">' + (i+1) + '</span>' +
+      '<button class="x" data-' + prefix + 'rm="' + i + '" aria-label="Remove page ' + (i+1) + '">×</button></div>'
+    ).join('') + '</div>' +
+    '<p class="help">' + arr.length + (arr.length === 1 ? ' page' : ' pages · saved as one PDF') +
+    ' · ' + total + ' KB</p>';
+}
+
+function wirePageRemoval(container, arr, prefix, redraw){
+  container.querySelectorAll('[data-' + prefix + 'rm]').forEach(b => {
+    b.onclick = () => { arr.splice(+b.dataset[prefix + 'rm'], 1); redraw(); };
+  });
+}
+
+/** Combines pages into one PDF; a single image stays a JPEG. */
+async function buildUpload(arr){
+  if (!arr.length) return null;
+  if (arr[0].isPdf) return {base64:arr[0].base64, mime:'application/pdf'};
+  if (arr.length === 1) return {base64:arr[0].base64, mime:'image/jpeg'};
+  if (!window.jspdf || !window.jspdf.jsPDF){
+    throw new Error('The PDF builder did not load. Check your connection, or upload the pages as a single PDF.');
+  }
+  const A4 = {w:595.28, h:841.89};
+  const pdf = new window.jspdf.jsPDF({unit:'pt', format:'a4', orientation:'p'});
+  arr.forEach((p, i) => {
+    if (i > 0) pdf.addPage('a4', 'p');
+    const scale = Math.min(A4.w / p.w, A4.h / p.h);
+    const w = p.w * scale, h = p.h * scale;
+    pdf.addImage(p.previewUrl, 'JPEG', (A4.w - w) / 2, (A4.h - h) / 2, w, h);
+  });
+  const b64 = pdf.output('datauristring').split(',')[1];
+  if (b64.length * 0.75 > 11 * 1024 * 1024){
+    throw new Error('That bill is too large at ' + arr.length + ' pages. Remove a page or photograph it more tightly.');
+  }
+  return {base64:b64, mime:'application/pdf'};
+}
 async function handleFile(file, target){
   if (!file) return;
   target = target || 'record';
@@ -585,13 +667,9 @@ async function handleFile(file, target){
 
 function renderAttAttachment(){
   const out = $('attAttachOut');
-  if (!attFile){ out.innerHTML = ''; return; }
-  const kb = Math.round(attFile.base64.length * 0.75 / 1024);
-  out.innerHTML = '<div class="thumb">' +
-    (attFile.previewUrl ? '<img src="' + attFile.previewUrl + '" alt="Bill preview">' : '') +
-    '<div class="meta">' + esc(attFile.name) + '<br>' + kb + ' KB</div>' +
-    '<button class="x" id="dropAtt" aria-label="Remove attachment">×</button></div>';
-  $('dropAtt').onclick = () => { attFile = null; renderAttAttachment(); };
+  out.innerHTML = pageStrip(attPages, 'a');
+  wirePageRemoval(out, attPages, 'a', renderAttAttachment);
+  $('attCamBtn').textContent = attPages.length ? 'Add another page' : 'Take a photo';
 }
 
 function toBase64(file){
@@ -616,7 +694,8 @@ function compressImage(file){
       cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
       const dataUrl = cv.toDataURL('image/jpeg', 0.75);
       URL.revokeObjectURL(url);
-      res({base64:dataUrl.split(',')[1], mime:'image/jpeg', name:file.name, previewUrl:dataUrl});
+      res({base64:dataUrl.split(',')[1], mime:'image/jpeg', name:file.name,
+           previewUrl:dataUrl, w:cv.width, h:cv.height});
     };
     img.onerror = () => { URL.revokeObjectURL(url); rej(new Error('decode failed')); };
     img.src = url;
@@ -625,19 +704,13 @@ function compressImage(file){
 
 function renderAttachment(){
   const out = $('attachOut');
-  if (!attachment){ out.innerHTML = ''; return; }
-  if (attachment === 'none'){
+  if (noBill){
     out.innerHTML = '<div class="thumb"><div class="meta">Recorded without a bill image.</div></div>';
-    return;
+  }else{
+    out.innerHTML = pageStrip(pages, 'r');
+    wirePageRemoval(out, pages, 'r', renderAttachment);
   }
-  const kb = Math.round(attachment.base64.length * 0.75 / 1024);
-  out.innerHTML =
-    '<div class="thumb">' +
-      (attachment.previewUrl ? '<img src="' + attachment.previewUrl + '" alt="Bill preview">' : '') +
-      '<div class="meta">' + esc(attachment.name) + '<br>' + kb + ' KB</div>' +
-      '<button class="x" id="dropAttach" aria-label="Remove attachment">×</button>' +
-    '</div>';
-  $('dropAttach').onclick = () => { attachment = null; renderAttachment(); };
+  $('camBtn').textContent = pages.length ? 'Add another page' : 'Take a photo';
 }
 
 /* ═══════════ ITEM PICKER ═══════════ */
@@ -845,9 +918,7 @@ function collect(){
     discount: Number($('discount').value) || 0,
     discountType: discountType(),
     additionalCharges: r2($('charges').value),
-    noBill: attachment === 'none',
-    fileBase64: (attachment && attachment !== 'none') ? attachment.base64 : '',
-    fileMime: (attachment && attachment !== 'none') ? attachment.mime : '',
+    noBill: noBill,
     items: lines.map(l => ({
       sku:l.sku, qty:lineQty(l), amount:r2(l.amount),
       pack: (l.packIdx >= 0 && l.packs.length)
@@ -857,7 +928,7 @@ function collect(){
 }
 
 function validate(p){
-  if (!attachment) return 'Attach the bill, or mark it as having no bill image.';
+  if (!noBill && !pages.length) return 'Attach the bill, or mark it as having no bill image.';
   if (!p.purchaseDate) return 'Pick the purchase date.';
   if (!p.vendorName && !p.newVendor) return 'Pick or enter the vendor.';
   if (boot.needsOutlet && !p.branchCode) return 'Pick the outlet this purchase belongs to.';
@@ -889,6 +960,10 @@ async function submitPurchase(confirmDuplicate){
 
   busy($('submitBtn'), true, 'Saving…');
   try{
+    if (!noBill){
+      const up = await buildUpload(pages);
+      p.fileBase64 = up.base64; p.fileMime = up.mime;
+    }
     const r = await api('submitPurchase', p);
     busy($('submitBtn'), false);
     if (r.duplicate){
@@ -934,7 +1009,7 @@ function showDone(r){
 
 $('againBtn').onclick = () => {
   lines = [];
-  attachment = null;
+  pages = []; noBill = false;
   $('noBillBtn').setAttribute('aria-pressed', 'false');
   $('charges').value = '';
   $('discount').value = '';
@@ -1043,18 +1118,19 @@ $('attSaveBtn').onclick = async () => {
   if (!rows.length) return notice($('attachMsg'), 'Pick the rows this bill covers.');
   const inv = $('attInv').value.trim();
   if (!inv) return notice($('attachMsg'), 'Enter the invoice number.');
-  if (!attFile && !confirm('No image attached. Record the invoice number only?')) return;
+  if (!attPages.length && !confirm('No image attached. Record the invoice number only?')) return;
   notice($('attachMsg'), '');
   busy($('attSaveBtn'), true, 'Attaching…');
   try{
+    const up = attPages.length ? await buildUpload(attPages) : null;
     const r = await api('attachBill', {
       rows: rows.map(x => ({row:x.row, date:x.date, sku:x.sku, item:x.item})),
-      invoiceNo: inv, noBill: !attFile,
-      fileBase64: attFile ? attFile.base64 : '', fileMime: attFile ? attFile.mime : ''
+      invoiceNo: inv, noBill: !up,
+      fileBase64: up ? up.base64 : '', fileMime: up ? up.mime : ''
     });
     busy($('attSaveBtn'), false);
     if (!r.ok) return notice($('attachMsg'), r.error);
-    attSel = {}; attFile = null; $('attInv').value = ''; renderAttAttachment();
+    attSel = {}; attPages = []; $('attInv').value = ''; renderAttAttachment();
     pending = null;
     showPanel('Bill attached',
       r.updated + ' row' + (r.updated === 1 ? '' : 's') + ' updated to invoice ' + esc(r.invoiceNo) + '.' +
